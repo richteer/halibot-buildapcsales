@@ -11,16 +11,17 @@ class BuildAPcSales(HalModule):
 	run = False
 	thread = None
 	url = "http://reddit.com/r/buildapcsales/new.json?before={before}"
-	form = "[{ups}/{downs}] {title}"
+	form = "{title} ({domain})"
 	delay = 120
 	last = ""
 	target = ""
-	filters = []
 
 	def init(self):
 		self.target = self.config["target"] # Mandatory, let error trickle up
+
 		self.delay = self.config.get("delay",120)
 		self.filters = self.config.get("filters",[".*"]) # Match all if no initial filters exist
+		self.form = self.config.get("format", self.form)
 
 		self.start_watcher()
 
@@ -51,7 +52,6 @@ class BuildAPcSales(HalModule):
 	# TODO move error checking into here, return only data?
 	def make_request(self, **kwargs):
 		return requests.get(self.url.format(**kwargs), headers={"User-Agent":"Mozilla/5.0"})
-		
 
 
 	def parse(self, data, first=False):
