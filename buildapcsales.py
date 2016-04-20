@@ -11,9 +11,10 @@ class BuildAPcSales(HalModule):
 	run = False
 	thread = None
 	url = "http://reddit.com/r/buildapcsales/new.json?before={before}"
-	form = "{title} ({domain})"
+	form = "{title} ({domain}) - {short_url}"
 	delay = 120
 	last = ""
+	resp = None
 	target = ""
 
 	def init(self):
@@ -34,20 +35,25 @@ class BuildAPcSales(HalModule):
 	def stop_watcher(self):
 		self.run = False
 		self.last = ""
+		self.oldthread = self.thread
+		self.oldthread.join(self.delay)
+		if self.oldthread.is_alive():
+			self.log.warning("Old thread did not stop!")
+
 
 	def _refreshloop(self):
-		first = True
+		self.first = True
 		while self.run:
-			r = self.make_request(before=self.last)
+			r = self.resp = self.make_request(before=self.last)
 			if r.ok and r.status_code == 200:
 				try:
-					new = self.parse(r.json()["data"]["children"], first=first)
+					new = self.parse(r.json()["data"]["children"], first=self.first)
 					self.send_updates(new)
 				except Exception as e:
 					print("error parsing: " + str(e))
 				# apply filters here
-				time.sleep(self.delay)
-				first = False
+				self.first = False
+			time.sleep(self.delay)
 
 	# TODO move error checking into here, return only data?
 	def make_request(self, **kwargs):
@@ -74,6 +80,7 @@ class BuildAPcSales(HalModule):
 			self.send_to(msg, ["irc"]) # TODO: Not need this
 
 	def outform(self, entry):
+		entry["short_url"] = "http://redd.it/" + entry["id"]
 		return self.form.format(**entry)
 
 
@@ -94,9 +101,12 @@ class BuildAPcSales(HalModule):
 				if self.run:
 					self.reply(msg, body="Stopping watcher")
 					self.stop_watcher()
-					time.sleep(self.delay)
+					#time.sleep(self.delay)
 				self.start_watcher()
 				self.reply(msg, body="Started watcher")
+			elif arg == "reset":
+				self.last = ""
+				self.first = True
 			elif arg == "test":
 				self.send_to(Message(context=Context(agent="irc",whom=self.target), body="Hello World!"), ["irc"])
 			elif arg.startswith("filter"):
