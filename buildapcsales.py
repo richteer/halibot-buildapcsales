@@ -1,4 +1,9 @@
 
+# TODO: Remove this when modules get proper localdir support
+import sys
+sys.path.append("modules/buildapcsales")
+
+
 import time
 import threading
 import requests
