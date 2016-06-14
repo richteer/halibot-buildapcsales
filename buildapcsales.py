@@ -5,7 +5,6 @@ sys.path.append("modules/buildapcsales")
 
 
 import time
-import threading
 import requests
 import re
 import bapc_filter as bapcfilter
@@ -14,22 +13,21 @@ from halibot import Message, Context
 
 class BuildAPcSales(HalModule):
 
-	run = False
-	thread = None
 	url = "http://reddit.com/r/buildapcsales/new.json?before={before}"
 	form = "{title} ({domain}) - {short_url}"
 	delay = 120
 	last = ""
-	resp = None
 	target = ""
 
 	def init(self):
+		self.task = None
+
 		self.target = self.config["target"] # Mandatory, let error trickle up
 
 		self.delay = self.config.get("delay",120)
 
 		self.filters = {}
-		for line in self.config.get("filters", ["all: .*"]):
+		for line in self.config.get("filters", ['all: accept ".*"']):
 			self.add_filter(line)
 
 		self.form = self.config.get("format", self.form)
@@ -42,33 +40,25 @@ class BuildAPcSales(HalModule):
 
 
 	def start_watcher(self):
-		self.thread = threading.Thread(target=self._refreshloop)
-		self.run = True
-		self.thread.start()
-
-	# Join?
-	def stop_watcher(self):
-		self.run = False
-		self.last = ""
-		self.oldthread = self.thread
-		self.oldthread.join(self.delay)
-		if self.oldthread.is_alive():
-			self.log.warning("Old thread did not stop!")
-
-
-	def _refreshloop(self):
 		self.first = True
-		while self.run:
-			r = self.resp = self.make_request(before=self.last)
-			if r.ok and r.status_code == 200:
-				try:
-					new = self.parse(r.json()["data"]["children"], first=self.first)
-					self.send_updates(new)
-				except Exception as e:
-					print("error parsing: " + str(e))
-				# apply filters here
-				self.first = False
-			time.sleep(self.delay)
+		self.task = self.eventloop.call_soon_threadsafe(self._refresh)
+
+	def stop_watcher(self):
+		self.last = ""
+		if self.task:
+			self.task.cancel()
+			self.task = None
+
+	def _refresh(self):
+		r = self.make_request(before=self.last)
+		if r.ok and r.status_code == 200:
+			try:
+				new = self.parse(r.json()["data"]["children"], first=self.first)
+				self.send_updates(new)
+			except Exception as e:
+				print("error parsing: " + str(e))
+			self.first = False
+		self.task = self.eventloop.call_later(self.delay, self._refresh)
 
 	# TODO move error checking into here, return only data?
 	def make_request(self, **kwargs):
@@ -108,24 +98,21 @@ class BuildAPcSales(HalModule):
 
 		# TODO: Clean this up
 		if cmd == "!bapc":
-			if arg == "start" and not self.run:
+			if arg == "start" and not self.task:
 				self.start_watcher()
 				self.reply(msg, body="Started watcher")
-			elif arg == "stop" and self.run:
+			elif arg == "stop" and self.task:
 				self.stop_watcher()
 				self.reply(msg, body="Stopping watcher")
 			elif arg == "restart":
-				if self.run:
+				if self.task:
 					self.reply(msg, body="Stopping watcher")
 					self.stop_watcher()
-					#time.sleep(self.delay)
 				self.start_watcher()
 				self.reply(msg, body="Started watcher")
 			elif arg == "reset":
 				self.last = ""
 				self.first = True
-			elif arg == "test":
-				self.send_to(Message(context=Context(agent="irc",whom=self.target), body="Hello World!"), ["irc"])
 			elif arg.startswith("filter"):
 				args = arg.split(" ",2)[1:]
 				try:
